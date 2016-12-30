@@ -460,8 +460,8 @@ function! s:init_local_blob() " {{{1
     let l:local.tex = l:filename
     let l:local.pid = 0
     let l:local.name = fnamemodify(l:filename, ':t:r')
-    let l:local.root = fnamemodify(l:filename, ':h')
-    let l:local.base = fnamemodify(l:filename, ':t')
+    let l:local.root = get(s:, 'root', fnamemodify(l:filename, ':h'))
+    let l:local.base = get(s:, 'base', fnamemodify(l:filename, ':t'))
 
     let s:vimtex_next_id += 1
     let g:vimtex_data[s:vimtex_next_id] = l:local
@@ -519,8 +519,7 @@ function! s:get_main() " {{{1
   " Search for TEX root specifier at the beginning of file. This is used by
   " several other plugins and editors.
   "
-  let l:candidate = s:get_main_from_specifier(
-        \ '^\c\s*%\s*!\?\s*tex\s\+root\s*=\s*\zs.*\ze\s*$')
+  let l:candidate = s:get_main_from_texroot()
   if !empty(l:candidate)
     return l:candidate
   endif
@@ -528,8 +527,7 @@ function! s:get_main() " {{{1
   "
   " Support for subfiles package
   "
-  let l:candidate = s:get_main_from_specifier(
-        \ '^\C\s*\\documentclass\[\zs.*\ze\]{subfiles}')
+  let l:candidate = s:get_main_from_subfile()
   if !empty(l:candidate)
     return l:candidate
   endif
@@ -570,20 +568,54 @@ function! s:get_main() " {{{1
 endfunction
 
 " }}}1
-function! s:get_main_from_specifier(spec) " {{{1
+function! s:get_main_from_texroot() " {{{1
   for l:line in getline(1, 5)
-    let l:filename = matchstr(l:line, a:spec)
+    let l:filename = matchstr(l:line,
+          \ '^\c\s*%\s*!\?\s*tex\s\+root\s*=\s*\zs.*\ze\s*$')
     if len(l:filename) > 0
       if l:filename[0] ==# '/'
         if filereadable(l:filename) | return l:filename | endif
       else
-        " The candidate may be relative both to the current buffer file and to
-        " the working directory (for subfile package)
-        for l:candidate in map([
-              \   expand('%:p:h'),
-              \   getcwd()],
-              \ 'simplify(v:val . ''/'' . l:filename)')
-          if filereadable(l:candidate) | return l:candidate | endif
+        let l:candidate = simplify(expand('%:p:h') . '/' . l:filename)
+        if filereadable(l:candidate) | return l:candidate | endif
+      endif
+    endif
+  endfor
+
+  return ''
+endfunction
+
+" }}}1
+function! s:get_main_from_subfile() " {{{1
+  for l:line in getline(1, 5)
+    let l:filename = matchstr(l:line,
+          \ '^\C\s*\\documentclass\[\zs.*\ze\]{subfiles}')
+    if len(l:filename) > 0
+      if l:filename[0] ==# '/'
+        " Absolute path
+        if filereadable(l:filename) | return l:filename | endif
+      else
+        " First try relative path
+        let l:candidate = simplify(expand('%:p:h') . '/' . l:filename)
+        if filereadable(l:candidate) | return l:candidate | endif
+
+        " Now assume that the path is relative to the main file root. This is
+        " difficult, since the main file is the one we are looking for. We
+        " therefore assume that the main file lives somewhere in the directory
+        " tree closer to the root.
+        let l:path = expand('%:p:h')
+        let l:candidates = [l:path]
+        while l:path != fnamemodify(l:path, ':h')
+          let l:path = fnamemodify(l:path, ':h')
+          let l:candidates += [l:path]
+        endwhile
+        call map(l:candidates, 'v:val . ''/'' . l:filename')
+        for l:candidate in l:candidates
+          if filereadable(l:candidate)
+            let s:root = fnamemodify(l:candidate, ':h')
+            let s:base = strpart(expand('%:p'), len(s:root) + 1)
+            return l:candidate
+          endif
         endfor
       endif
     endif

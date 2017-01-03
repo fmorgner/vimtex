@@ -592,31 +592,23 @@ function! s:get_main_from_subfile() " {{{1
           \ '^\C\s*\\documentclass\[\zs.*\ze\]{subfiles}')
     if len(l:filename) > 0
       if l:filename[0] ==# '/'
-        " Absolute path
+        " Specified path is absolute
         if filereadable(l:filename) | return l:filename | endif
       else
-        " First try relative path
+        " Try specified path as relative to current file path
         let l:candidate = simplify(expand('%:p:h') . '/' . l:filename)
         if filereadable(l:candidate) | return l:candidate | endif
 
-        " Now assume that the path is relative to the main file root. This is
+        " Try specified path as relative to the project main file. This is
         " difficult, since the main file is the one we are looking for. We
-        " therefore assume that the main file lives somewhere in the directory
-        " tree closer to the root.
-        let l:path = expand('%:p:h')
-        let l:candidates = [l:path]
-        while l:path != fnamemodify(l:path, ':h')
-          let l:path = fnamemodify(l:path, ':h')
-          let l:candidates += [l:path]
-        endwhile
-        call map(l:candidates, 'v:val . ''/'' . l:filename')
-        for l:candidate in l:candidates
-          if filereadable(l:candidate)
-            let s:root = fnamemodify(l:candidate, ':h')
-            let s:base = strpart(expand('%:p'), len(s:root) + 1)
-            return l:candidate
-          endif
-        endfor
+        " therefore assume that the main file lives somewhere upwards in the
+        " directory tree.
+        let l:candidate = findfile(l:filename, '.;')
+        if filereadable(l:candidate)
+          let s:root = fnamemodify(l:candidate, ':h')
+          let s:base = strpart(expand('%:p'), len(s:root) + 1)
+          return l:candidate
+        endif
       endif
     endif
   endfor

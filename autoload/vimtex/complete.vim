@@ -10,7 +10,6 @@ function! vimtex#complete#init_options() " {{{1
 
   call vimtex#util#set_default('g:vimtex_complete_close_braces', 0)
   call vimtex#util#set_default('g:vimtex_complete_recursive_bib', 0)
-  call vimtex#util#set_default('g:vimtex_complete_img_use_tail', 0)
 endfunction
 
 " }}}1
@@ -378,32 +377,71 @@ let s:img = {
       \ 'patterns' : ['\v\\includegraphics\*?%(\s*\[[^]]*\]){0,2}\s*\{[^}]*$'],
       \ 'ext_re' : '\v\.%('
       \   . join(['png', 'jpg', 'eps', 'pdf', 'pgf', 'tikz'], '|')
-      \   . ')$'
+      \   . ')$',
+      \ 'has_graphicspath' : 0,
       \}
 
 function! s:img.complete(regex) dict " {{{2
-  let self.candidates = []
-  let self.candidates = split(globpath(b:vimtex.root, '**/*.*'), '\n')
+  call self.init()
+  call self.gather_candidates(a:regex)
 
-  let l:output = b:vimtex.out()
-  call filter(self.candidates, 'v:val !=# l:output')
-  call filter(self.candidates, 'v:val =~? self.ext_re')
-  call filter(self.candidates, 'v:val =~# a:regex')
+  echom string(self.candidates)
 
-  call map(self.candidates, 'strpart(v:val, len(b:vimtex.root)+1)')
   call map(self.candidates, '{
         \ ''abbr'' : v:val,
         \ ''word'' : v:val,
         \ ''menu'' : '' [graphics]'',
         \ }')
 
-  if g:vimtex_complete_img_use_tail
+  if self.has_graphicspath
     for l:cand in self.candidates
       let l:cand.word = fnamemodify(l:cand.word, ':t')
     endfor
   endif
 
   return self.candidates
+endfunction
+
+function! s:img.gather_candidates(regex) dict " {{{2
+  if self.has_graphicspath
+    let self.candidates = split(globpath(expand('%:p:h'), '*.*'), '\n')
+    for l:path in self.graphicspaths
+      let self.candidates += split(globpath(l:path, '*.*'), '\n')
+    endfor
+  else
+    let self.candidates = split(globpath(b:vimtex.root, '**/*.*'), '\n')
+  endif
+
+  call filter(self.candidates, 'v:val !=# b:vimtex.out()')
+  call filter(self.candidates, 'v:val =~? self.ext_re')
+  call map(self.candidates, 'fnamemodify(v:val, '':.'')')
+
+  call filter(self.candidates, 'v:val =~# a:regex')
+
+  if !self.has_graphicspath
+    call map(self.candidates, 'strpart(v:val, len(b:vimtex.root)+1)')
+  endif
+endfunction
+
+function! s:img.init() dict " {{{2
+  if get(self, 'initialized', 0) | return | endif
+  let self.initialized = 1
+
+  let l:lines = vimtex#parser#tex(b:vimtex.tex, {
+        \ 're_stop': '\\begin{document}',
+        \ 'detailed': 0,
+        \})
+  call filter(l:lines, 'v:val =~# ''\\graphicspath''')
+  if empty(l:lines) | return | endif
+
+  let self.has_graphicspath = 1
+  let self.graphicspaths = []
+  for l:path in split(
+        \ matchstr(l:lines[0], '{\s*{\s*\zs.*\ze\s*}\s*}'),
+        \ '}\s*{')
+    call add(self.graphicspaths, l:path[0] ==# '/'
+          \ ? l:path : simplify(b:vimtex.root . '/' . l:path))
+  endfor
 endfunction
 
 " }}}1
